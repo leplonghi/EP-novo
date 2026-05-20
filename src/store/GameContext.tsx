@@ -109,6 +109,14 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const joinAsPlayer = (id: string) => {
+    // Ensure room exists
+    dataRef.get(`games/${gameId}`).exists() || dataRef.set(`games/${gameId}`, { state: 'lobby', currentRound: 0, conditionalId: '' });
+
+    // Auto-start if lobby
+    if (gameInfo.state === 'lobby') {
+      startGame();
+    }
+
     const pConfig = STUDENTS.find(t => t.id === id);
     if (pConfig) {
       setMyPlayerId(id);
@@ -160,20 +168,22 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       const ev = await res.json();
       
-      dataRef.update(`games/${gameId}/evaluations`, { ...evaluations, [key]: ev });
+      // Directly update only the key for this student
+      dataRef.update(`games/${gameId}/evaluations`, { [key]: ev });
       
       const currentExp = playerData[myPlayerId]?.exp || 0;
       let bonusExp = 20; // base for submitting
       if (ev.score >= 55) bonusExp += 40;
       
+      // Similarly, only update the player record
       dataRef.update(`games/${gameId}/players`, {
         [myPlayerId]: { ...playerData[myPlayerId], exp: currentExp + bonusExp, score: (playerData[myPlayerId]?.score || 0) + (ev.score || 0) }
       });
       
     } catch(e) {
       console.error("Eval error", e);
+      // Fallback eval
       dataRef.update(`games/${gameId}/evaluations`, { 
-        ...evaluations, 
         [key]: { score: 40, strongPoint: "Boa tentativa.", weakPoint: "Falta detalhe.", recommendation: "Aprofunde.", funComment: "Na trave!", discussionPrompt: "Quais os desafios reais aqui?" } 
       });
     }

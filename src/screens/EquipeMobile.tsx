@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router';
 import { useGame } from '../store/GameContext';
 import { STUDENTS, ROUNDS, CONDITIONALS, getRank } from '../data/gameData';
-import { ChevronDown, Send, Shield, Zap, AlertTriangle, HelpCircle, Map, Target, Trophy, ArrowRight, X } from 'lucide-react';
+import { ChevronDown, Send, Shield, Zap, AlertTriangle, HelpCircle, Map, Target, Trophy, ArrowRight, X, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 import { Tooltip } from '../components/Tooltip';
@@ -79,6 +80,7 @@ function TutorialModal({ onClose }: { onClose: () => void }) {
 
 export default function EquipeMobile() {
   const { gameInfo, playerData, myPlayerId, submitAnswer, submissions, sendInteraction, startGame, evaluations, evaluateAll, nextRound } = useGame();
+  const navigate = useNavigate();
   
   const [showTutorial, setShowTutorial] = useState(false);
   
@@ -247,7 +249,13 @@ export default function EquipeMobile() {
                                 Sua Área de Intervenção
                             </label>
                             
-                            {/* ... (rest of the cards - I need to apply similar styling to the rest of the form) */}
+                            {(roundConfig.mechanic === 'pick_combo' || roundConfig.mechanic === 'pick_problem') && (
+                                <p className="text-sm text-sky-600 font-medium bg-sky-50 p-3 rounded-xl border border-sky-100">
+                                    {roundConfig.mechanic === 'pick_problem' 
+                                        ? "Selecione exatamente 3 alternativas para o diagnóstico inicial."
+                                        : "Selecione exatamente 2 alternativas."}
+                                </p>
+                            )}
                            
                            {roundConfig.mechanic === 'pick_combo' || roundConfig.mechanic === 'pick_problem' ? (
                                <div className="grid grid-cols-1 gap-2">
@@ -353,7 +361,7 @@ export default function EquipeMobile() {
                ) : (
                    <div className="space-y-8">
                        <div className="bg-white/5 backdrop-blur-lg border border-cyan-500/30 rounded-2xl p-6 text-center shadow-[0_0_30px_rgba(34,211,238,0.1)]">
-                           {gameInfo.state === 'round_evaluating' || (evaluations[`r${gameInfo.currentRound}_${myPlayerId}`] && evaluations[`r${gameInfo.currentRound}_${myPlayerId}`]._loading) ? (
+                           {(evaluations[`r${gameInfo.currentRound}_${myPlayerId}`] && evaluations[`r${gameInfo.currentRound}_${myPlayerId}`]._loading) ? (
                                <div className="flex flex-col items-center py-8">
                                    <div className="relative w-24 h-24 mb-6">
                                        <div className="absolute inset-0 border-8 border-slate-800 rounded-full"></div>

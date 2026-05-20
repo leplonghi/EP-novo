@@ -58,7 +58,7 @@ Keep comments short, punchy, and academic but fun (Brazilian Portuguese).`;
       while (retries > 0) {
         try {
           response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
+            model: 'gemini-1.5-flash',
             contents: systemPrompt,
             config: {
                 temperature: 0.7,
@@ -67,9 +67,11 @@ Keep comments short, punchy, and academic but fun (Brazilian Portuguese).`;
           });
           break;
         } catch (err: any) {
-          if (err.status === 503 && retries > 1) {
+          console.error(`Attempt ${4 - retries} failed:`, err.status, err.message);
+          if ((err.status === 503 || err.status === 429) && retries > 1) {
             retries--;
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Exponential backoff
+            await new Promise(resolve => setTimeout(resolve, (4 - retries) * 1000));
             continue;
           }
           throw err;

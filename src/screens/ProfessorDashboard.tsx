@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router';
 import { useGame } from '../store/GameContext';
 import { STUDENTS, ROUNDS, getRank, CONDITIONALS } from '../data/gameData';
-import { Play, Users, Trophy, ChevronRight, Activity, ArrowRight, Zap, Target, Eye, Info, Share2 } from 'lucide-react';
+import { Play, Users, Trophy, ChevronRight, Activity, ArrowRight, Zap, Target, Eye, Info, Share2, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Tooltip } from '../components/Tooltip';
 
 export default function ProfessorDashboard() {
   const { gameInfo, playerData, startGame, nextRound, evaluateAll, isProfessor, submissions, evaluations, simulatePlayersPresence, simulateRoundSubmissions, sendInteraction, resetGame } = useGame();
+  
+  const navigate = useNavigate();
   
   const [selectedEvals, setSelectedEvals] = useState<string[]>([]);
   
@@ -71,11 +74,9 @@ export default function ProfessorDashboard() {
           </div>
         </div>
         <div className="flex gap-4 items-center">
-            {gameInfo.state === 'lobby' && (
-              <button onClick={handleStart} className="flex items-center gap-2 bg-cyan-500 text-black hover:bg-white px-6 py-2 rounded-xl font-black uppercase tracking-widest transition-all">
-                <Play className="w-4 h-4" /> INICIAR PARTIDA
-              </button>
-            )}
+            <button onClick={() => navigate('/')} className="p-2 bg-white/5 hover:bg-white/10 rounded-xl text-slate-400 hover:text-white transition-colors">
+              <ArrowLeft className="w-5 h-5" />
+            </button>
             {gameInfo.state === 'round_active' && (
                <button onClick={evaluateAll} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-xl font-bold shadow-lg shadow-indigo-900/50 transition-colors">
                  <Zap className="w-4 h-4" /> ENCERRAR E AVALIAR
@@ -142,7 +143,7 @@ export default function ProfessorDashboard() {
                 </div>
 
                 {/* THE MAP OR EVALUATION */}
-                {gameInfo.state === 'round_discussion' ? (
+                {(gameInfo.state === 'round_discussion' || Object.keys(evaluations).some(k => k.startsWith(`r${gameInfo.currentRound}_`))) ? (
                     <div className="flex-1 flex flex-col gap-4 overflow-hidden relative z-20">
                         <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-white/10 pb-2 flex justify-between items-center">
                             <span>Avaliações da Rodada</span>
@@ -333,6 +334,12 @@ export default function ProfessorDashboard() {
                                                     )}
                                                 </div>
                                                 <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-none mt-1">{rnk.name}</div>
+                                                <div className="w-24 h-1.5 bg-slate-800 rounded-full mt-1.5 overflow-hidden">
+                                                  <div 
+                                                    className={`h-full ${index === 0 ? 'bg-cyan-400' : 'bg-sky-500'}`} 
+                                                    style={{ width: `${Math.min(100, Math.max(0, ((pData?.exp || 0) / (rnk.max || 1)) * 100))}%` }}
+                                                  />
+                                                </div>
                                             </div>
                                         </div>
                                         <div className="text-right">

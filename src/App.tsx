@@ -15,13 +15,14 @@ function Lobby() {
   const [studentSelection, setStudentSelection] = useState('');
   
   const handleProf = () => {
+    // Automatically join the main blitz-1 room
     joinAsProfessor('blitz-1');
     navigate('/professor');
   };
 
   const handlePlayer = (e: React.FormEvent) => {
     e.preventDefault();
-    if (joinAsPlayer(studentSelection)) {
+    if (studentSelection && joinAsPlayer(studentSelection)) {
       navigate('/equipe');
     } else {
       alert('Selecione seu nome.');
