@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useGame } from '../store/GameContext';
-import { STUDENTS, ROUNDS, getRank, CONDITIONALS } from '../data/gameData';
+import { STUDENTS, ROUNDS, getRank, CONDITIONALS, INTERACTION_TYPES } from '../data/gameData';
 import { Play, Users, Trophy, ChevronRight, Activity, ArrowRight, Zap, Target, Eye, Info, Share2, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Tooltip } from '../components/Tooltip';
@@ -25,13 +25,13 @@ export default function ProfessorDashboard() {
   const roundConfig = ROUNDS.find(r => r.id === gameInfo.currentRound);
   const conditional = CONDITIONALS.find(c => c.id === gameInfo.conditionalId);
 
-  const handleStart = () => {
+  const handleStart = async () => {
     // Pick first round, first cond
-    startGame();
+    await startGame();
   };
 
-  const handleNextRound = () => {
-    nextRound(gameInfo.conditionalId);
+  const handleNextRound = async () => {
+    await nextRound(gameInfo.conditionalId);
   };
 
   const [contextMenu, setContextMenu] = useState<{pid: string, x: number; y: number} | null>(null);
@@ -63,13 +63,13 @@ export default function ProfessorDashboard() {
           <div className="flex items-center gap-3">
              <p className="text-[10px] tracking-widest text-slate-400 uppercase">Blitz Urbana</p>
              {gameInfo.state === 'lobby' && (
-                <button onClick={simulatePlayersPresence} className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30 hover:bg-indigo-500/40 transition-colors">Test: Add Players</button>
+                <button onClick={async () => await simulatePlayersPresence()} className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30 hover:bg-indigo-500/40 transition-colors">Test: Add Players</button>
              )}
              {gameInfo.state !== 'lobby' && (
-                 <button onClick={resetGame} className="text-[10px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded border border-red-500/30 hover:bg-red-500/40 transition-colors">Reset Game</button>
+                 <button onClick={async () => await resetGame()} className="text-[10px] bg-red-500/20 text-red-300 px-2 py-0.5 rounded border border-red-500/30 hover:bg-red-500/40 transition-colors">Reset Game</button>
              )}
              {gameInfo.state === 'round_active' && (
-                <button onClick={simulateRoundSubmissions} className="text-[10px] bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded border border-cyan-500/30 hover:bg-cyan-500/40 transition-colors">Test: Autoplay Round</button>
+                <button onClick={async () => await simulateRoundSubmissions()} className="text-[10px] bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded border border-cyan-500/30 hover:bg-cyan-500/40 transition-colors">Test: Autoplay Round</button>
              )}
           </div>
         </div>

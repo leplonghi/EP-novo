@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { db, mockDb } from '../lib/firebase';
+import { db, auth } from '../lib/firebase';
+import { doc, onSnapshot, setDoc, updateDoc, getDoc, collection, writeBatch, serverTimestamp, query, getDocs, deleteDoc } from 'firebase/firestore';
+import { signInAnonymously } from 'firebase/auth';
 import { STUDENTS, ROUNDS } from '../data/gameData';
 
 export type GameState = 'lobby' | 'round_active' | 'round_evaluating' | 'round_discussion' | 'end';
@@ -17,6 +19,41 @@ export interface GameModeInfo {
   conditionalId: string;
 }
 
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
 export interface GameContextType {
   gameId: string;
   isProfessor: boolean;
@@ -26,7 +63,7 @@ export interface GameContextType {
   submissions: Record<string, any>;
   evaluations: Record<string, any>;
   joinAsProfessor: (id: string) => void;
-  joinAsPlayer: (id: string) => boolean;
+  joinAsPlayer: (id: string) => Promise<boolean>;
   startGame: () => void;
   nextRound: (conditionalId: string) => void;
   submitAnswer: (submission: any) => void;
@@ -45,7 +82,7 @@ const defaultContext: GameContextType = {
   submissions: {},
   evaluations: {},
   joinAsProfessor: () => {},
-  joinAsPlayer: () => false,
+  joinAsPlayer: async () => false,
   startGame: () => {},
   nextRound: () => {},
   submitAnswer: () => {},
@@ -68,30 +105,46 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [submissions, setSubmissions] = useState<Record<string, any>>({});
   const [evaluations, setEvaluations] = useState<Record<string, any>>({});
 
-  // We use MockDB if real Firebase isn't hooked up correctly yet to prevent UI crashes in preview
-  const dataRef = db ? mockDb : mockDb; 
-
   useEffect(() => {
+    if (!db) return;
+
+    // Sign in anonymously if possible, but don't block if disabled
+    signInAnonymously(auth).catch(e => {
+       if (e.code !== 'auth/admin-restricted-operation') {
+         console.error("Auth error", e);
+       }
+    });
+
     // Listen to Game Info
-    const unsubGame = dataRef.onSnapshot(`games/${gameId}`, (doc: any) => {
-      if (doc.exists()) {
-        setGameInfo(doc.data());
+    const unsubGame = onSnapshot(doc(db, 'games', gameId), (snapshot) => {
+      if (snapshot.exists()) {
+        setGameInfo(snapshot.data() as GameModeInfo);
       }
-    });
+    }, (error) => handleFirestoreError(error, OperationType.GET, `games/${gameId}`));
 
-    const unsubPlayers = dataRef.onSnapshot(`games/${gameId}/players`, (doc: any) => {
-      if (doc.exists()) {
-        setPlayerData(doc.data());
-      }
-    });
+    const unsubPlayers = onSnapshot(collection(db, 'games', gameId, 'players'), (snapshot) => {
+      const data: Record<string, PlayerData> = {};
+      snapshot.forEach(doc => {
+        data[doc.id] = doc.data() as PlayerData;
+      });
+      setPlayerData(data);
+    }, (error) => handleFirestoreError(error, OperationType.GET, `games/${gameId}/players`));
 
-    const unsubSubs = dataRef.onSnapshot(`games/${gameId}/submissions`, (doc: any) => {
-      if (doc.exists()) setSubmissions(doc.data());
-    });
+    const unsubSubs = onSnapshot(collection(db, 'games', gameId, 'submissions'), (snapshot) => {
+      const data: Record<string, any> = {};
+      snapshot.forEach(doc => {
+        data[doc.id] = doc.data();
+      });
+      setSubmissions(data);
+    }, (error) => handleFirestoreError(error, OperationType.GET, `games/${gameId}/submissions`));
 
-    const unsubEvals = dataRef.onSnapshot(`games/${gameId}/evaluations`, (doc: any) => {
-      if (doc.exists()) setEvaluations(doc.data());
-    });
+    const unsubEvals = onSnapshot(collection(db, 'games', gameId, 'evaluations'), (snapshot) => {
+      const data: Record<string, any> = {};
+      snapshot.forEach(doc => {
+        data[doc.id] = doc.data();
+      });
+      setEvaluations(data);
+    }, (error) => handleFirestoreError(error, OperationType.GET, `games/${gameId}/evaluations`));
 
     return () => {
       unsubGame();
@@ -99,62 +152,161 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unsubSubs();
       unsubEvals();
     };
-  }, [gameId]); // Removed 'dataRef' from dependency array to avoid exhaustive-deps warning since it's practically static
+  }, [gameId]);
 
-  const joinAsProfessor = (id: string) => {
+  const joinAsProfessor = async (id: string) => {
     setGameId(id);
     setIsProfessor(true);
-    // Initialize if empty
-    dataRef.get(`games/${id}`).exists() || dataRef.set(`games/${id}`, { state: 'lobby', currentRound: 0, conditionalId: '' });
+    if (!db) return;
+    
+    try {
+      const gameDoc = await getDoc(doc(db, 'games', id));
+      if (!gameDoc.exists()) {
+        await setDoc(doc(db, 'games', id), { 
+          state: 'lobby', 
+          currentRound: 0, 
+          conditionalId: '',
+          updatedAt: serverTimestamp()
+        });
+      }
+    } catch(e) {
+      handleFirestoreError(e, OperationType.WRITE, `games/${id}`);
+    }
   };
 
-  const joinAsPlayer = (id: string) => {
-    // Ensure room exists
-    dataRef.get(`games/${gameId}`).exists() || dataRef.set(`games/${gameId}`, { state: 'lobby', currentRound: 0, conditionalId: '' });
+  const joinAsPlayer = async (id: string) => {
+    if (!db) return false;
 
-    // Auto-start if lobby
-    if (gameInfo.state === 'lobby') {
-      startGame();
-    }
+    try {
+      // Ensure room exists
+      const gameDoc = await getDoc(doc(db, 'games', gameId));
+      if (!gameDoc.exists()) {
+        await setDoc(doc(db, 'games', gameId), { 
+          state: 'lobby', 
+          currentRound: 0, 
+          conditionalId: '',
+          updatedAt: serverTimestamp()
+        });
+      }
 
-    const pConfig = STUDENTS.find(t => t.id === id);
-    if (pConfig) {
-      setMyPlayerId(id);
-      dataRef.update(`games/${gameId}/players`, {
-        [id]: { present: true, score: 0, exp: 0, rank: 'Calouro da Calçada', ...playerData[id] }
-      });
-      return true;
+      const pConfig = STUDENTS.find(t => t.id === id);
+      if (pConfig) {
+        setMyPlayerId(id);
+        await setDoc(doc(db, 'games', gameId, 'players', id), {
+          present: true, 
+          score: playerData[id]?.score || 0, 
+          exp: playerData[id]?.exp || 0, 
+          rank: playerData[id]?.rank || 'Calouro da Calçada',
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+        return true;
+      }
+    } catch(e) {
+      handleFirestoreError(e, OperationType.WRITE, `games/${gameId}/players/${id}`);
     }
     return false;
   };
 
-  const startGame = () => {
-    // Start with condition 1 to make narrative sense
-    dataRef.update(`games/${gameId}`, { state: 'round_active', currentRound: 1, conditionalId: 'cond1' });
-  };
-
-  const nextRound = (currentCondId: string) => {
-    const nextR = gameInfo.currentRound + 1;
-    if (nextR > 5) {
-      dataRef.update(`games/${gameId}`, { state: 'end' });
-    } else {
-      // Pick a conditional that makes sense for the round progression
-      // cond1: Pouca grana, cond2: Calor, cond3: Acesso, cond4: Chuva, cond5: Manutenção
-      const condForRound = `cond${nextR}`;
-      dataRef.update(`games/${gameId}`, { state: 'round_active', currentRound: nextR, conditionalId: condForRound });
+  const startGame = async () => {
+    if (!db) return;
+    try {
+      await updateDoc(doc(db, 'games', gameId), { 
+        state: 'round_active', 
+        currentRound: 1, 
+        conditionalId: 'cond1',
+        updatedAt: serverTimestamp() 
+      });
+    } catch(e) {
+      handleFirestoreError(e, OperationType.UPDATE, `games/${gameId}`);
     }
   };
 
-  const submitAnswer = async (submission: any) => {
-    if (!myPlayerId) return;
-    const key = `r${gameInfo.currentRound}_${myPlayerId}`;
-    dataRef.update(`games/${gameId}/submissions`, { [key]: submission });
-    
-    // Auto-evaluate for this player immediately
-    const pConfig = STUDENTS.find(t => t.id === myPlayerId);
+  const nextRound = async (currentCondId: string) => {
+    if (!db) return;
     try {
-      // Small delay just for flair
-      dataRef.update(`games/${gameId}/evaluations`, { ...evaluations, [key]: { _loading: true } });
+      const nextR = gameInfo.currentRound + 1;
+      if (nextR > 5) {
+        await updateDoc(doc(db, 'games', gameId), { 
+          state: 'end',
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        const condForRound = `cond${nextR}`;
+        await updateDoc(doc(db, 'games', gameId), { 
+          state: 'round_active', 
+          currentRound: nextR, 
+          conditionalId: condForRound,
+          updatedAt: serverTimestamp()
+        });
+      }
+    } catch(e) {
+      handleFirestoreError(e, OperationType.UPDATE, `games/${gameId}`);
+    }
+  };
+
+  const validateSubmission = (submission: any, roundConfig: any) => {
+    if (!submission.justification || submission.justification.length > 180) {
+      throw new Error("Justificação deve ter entre 1 e 180 caracteres.");
+    }
+
+    const { mechanic, options } = roundConfig;
+    const optionIds = options?.map((o: any) => o.id) || [];
+
+    if (mechanic === 'pick_problem' || mechanic === 'pick_combo') {
+      const required = mechanic === 'pick_problem' ? 3 : 2;
+      if (!Array.isArray(submission.mainOption) || submission.mainOption.length !== required) {
+        throw new Error(`Selecione exatamente ${required} opções.`);
+      }
+      if (!submission.mainOption.every((id: string) => optionIds.includes(id))) {
+        throw new Error("Uma ou mais opções selecionadas são inválidas para esta rodada.");
+      }
+    } else if (mechanic === 'distribute_tokens') {
+      if (typeof submission.mainOption !== 'object') {
+        throw new Error("Formato de distribuição de tokens inválido.");
+      }
+      let total = 0;
+      for (const [id, value] of Object.entries(submission.mainOption)) {
+        if (!optionIds.includes(id)) {
+          throw new Error(`Opção ${id} inválida para distribuição.`);
+        }
+        total += (Number(value) || 0);
+      }
+      if (total !== 10) {
+        throw new Error("Distribua exatamente 10 fichas.");
+      }
+    } else {
+      // Default single choice
+      if (!submission.mainOption || !optionIds.includes(submission.mainOption)) {
+        throw new Error("Seleção principal inválida ou ausente.");
+      }
+    }
+    return true;
+  };
+
+  const submitAnswer = async (submission: any) => {
+    if (!myPlayerId || !db) return;
+    const roundConfig = ROUNDS.find(r => r.id === gameInfo.currentRound);
+    if (!roundConfig) return;
+
+    try {
+      validateSubmission(submission, roundConfig);
+    } catch (valErr: any) {
+      alert(valErr.message);
+      return;
+    }
+
+    const key = `r${gameInfo.currentRound}_${myPlayerId}`;
+    
+    try {
+      await setDoc(doc(db, 'games', gameId, 'submissions', key), {
+        ...submission,
+        roundId: gameInfo.currentRound,
+        playerId: myPlayerId,
+        updatedAt: serverTimestamp()
+      });
+
+      const pConfig = STUDENTS.find(t => t.id === myPlayerId);
+      await setDoc(doc(db, 'games', gameId, 'evaluations', key), { _loading: true }, { merge: true });
       
       const res = await fetch('/api/evaluate', {
         method: 'POST',
@@ -168,107 +320,168 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       const ev = await res.json();
       
-      // Directly update only the key for this student
-      dataRef.update(`games/${gameId}/evaluations`, { [key]: ev });
+      await setDoc(doc(db, 'games', gameId, 'evaluations', key), {
+        ...ev,
+        updatedAt: serverTimestamp()
+      });
       
       const currentExp = playerData[myPlayerId]?.exp || 0;
-      let bonusExp = 20; // base for submitting
+      let bonusExp = 20; 
       if (ev.score >= 55) bonusExp += 40;
       
-      // Similarly, only update the player record
-      dataRef.update(`games/${gameId}/players`, {
-        [myPlayerId]: { ...playerData[myPlayerId], exp: currentExp + bonusExp, score: (playerData[myPlayerId]?.score || 0) + (ev.score || 0) }
+      await updateDoc(doc(db, 'games', gameId, 'players', myPlayerId), {
+        exp: currentExp + bonusExp, 
+        score: (playerData[myPlayerId]?.score || 0) + (ev.score || 0),
+        updatedAt: serverTimestamp()
       });
       
     } catch(e) {
       console.error("Eval error", e);
-      // Fallback eval
-      dataRef.update(`games/${gameId}/evaluations`, { 
-        [key]: { score: 40, strongPoint: "Boa tentativa.", weakPoint: "Falta detalhe.", recommendation: "Aprofunde.", funComment: "Na trave!", discussionPrompt: "Quais os desafios reais aqui?" } 
+      const key = `r${gameInfo.currentRound}_${myPlayerId}`;
+      await setDoc(doc(db, 'games', gameId, 'evaluations', key), { 
+        score: 40, strongPoint: "Boa tentativa.", weakPoint: "Falta detalhe.", recommendation: "Aprofunde.", funComment: "Na trave!", discussionPrompt: "Quais os desafios reais aqui?",
+        updatedAt: serverTimestamp()
       });
+      handleFirestoreError(e, OperationType.WRITE, `games/${gameId}/submissions/${key}`);
     }
   };
 
   const evaluateAll = async () => {
-    dataRef.update(`games/${gameId}`, { state: 'round_evaluating' });
-    
-    const currentSubs = Object.keys(submissions).filter(k => k.startsWith(`r${gameInfo.currentRound}_`));
-    const newEvals: any = {};
-    const updatedPlayers = { ...playerData };
+    if (!db) return;
+    try {
+      await updateDoc(doc(db, 'games', gameId), { state: 'round_evaluating' });
+      
+      const currentSubsEntries = Object.entries(submissions).filter(([k]) => k.startsWith(`r${gameInfo.currentRound}_`));
+      
+      for (const [key, sub] of currentSubsEntries) {
+        const playerId = key.split('_')[1];
+        const pConfig = STUDENTS.find(t => t.id === playerId);
 
-    for (const key of currentSubs) {
-      const playerId = key.split('_')[1];
-      const sub = submissions[key];
-      const pConfig = STUDENTS.find(t => t.id === playerId);
+        try {
+          const res = await fetch('/api/evaluate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              roundId: gameInfo.currentRound,
+              teamName: pConfig?.name,
+              submission: sub,
+              conditional: { title: "Condicionante", tooltip: "Teste" }
+            })
+          });
+          const ev = await res.json();
+          
+          await setDoc(doc(db, 'games', gameId, 'evaluations', key), {
+            ...ev,
+            updatedAt: serverTimestamp()
+          });
 
-      try {
-        const res = await fetch('/api/evaluate', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            roundId: gameInfo.currentRound,
-            teamName: pConfig?.name,
-            submission: sub,
-            conditional: { title: "Condicionante", tooltip: "Teste" } // TODO inject real cond
-          })
-        });
-        const ev = await res.json();
-        newEvals[key] = ev;
-
-        if (updatedPlayers[playerId]) {
-             updatedPlayers[playerId].score = (updatedPlayers[playerId].score || 0) + (ev.score || 0);
-             let bonusExp = 0;
-             if (ev.score >= 55) bonusExp += 40;
-             updatedPlayers[playerId].exp = (updatedPlayers[playerId].exp || 0) + bonusExp;
+          if (playerData[playerId]) {
+               let bonusExp = 0;
+               if (ev.score >= 55) bonusExp += 40;
+               await updateDoc(doc(db, 'games', gameId, 'players', playerId), {
+                 score: (playerData[playerId].score || 0) + (ev.score || 0),
+                 exp: (playerData[playerId].exp || 0) + bonusExp,
+                 updatedAt: serverTimestamp()
+               });
+          }
+        } catch(e) {
+          console.error("Eval error", e);
+          await setDoc(doc(db, 'games', gameId, 'evaluations', key), { 
+            score: 40, strongPoint: "Boa tentativa.", weakPoint: "Falta detalhe.", recommendation: "Aprofunde.", funComment: "Na trave!", discussionPrompt: "Quais os desafios reias aqui?",
+            updatedAt: serverTimestamp()
+          });
         }
-
-      } catch(e) {
-        console.error("Eval error", e);
-        // Fallback eval
-        newEvals[key] = { score: 40, strongPoint: "Boa tentativa.", weakPoint: "Falta detalhe.", recommendation: "Aprofunde.", funComment: "Na trave!", discussionPrompt: "Quais os desafios reias aqui?" };
       }
+      
+      await updateDoc(doc(db, 'games', gameId), { state: 'round_discussion', updatedAt: serverTimestamp() });
+    } catch(e) {
+      handleFirestoreError(e, OperationType.UPDATE, `games/${gameId}`);
     }
-    
-    dataRef.update(`games/${gameId}/evaluations`, newEvals);
-    dataRef.update(`games/${gameId}/players`, updatedPlayers);
-    dataRef.update(`games/${gameId}`, { state: 'round_discussion' });
   };
 
-  const closeRound = () => {
-    // Moved to discuss transition
+  const closeRound = () => {};
+
+  const simulatePlayersPresence = async () => {
+    if (!db) return;
+    try {
+      const batch = writeBatch(db);
+      STUDENTS.forEach(t => {
+        const ref = doc(db, 'games', gameId, 'players', t.id);
+        batch.set(ref, { 
+          present: true, 
+          score: 0, 
+          exp: 0, 
+          rank: 'Calouro da Calçada',
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      });
+      await batch.commit();
+    } catch(e) {
+      handleFirestoreError(e, OperationType.WRITE, `games/${gameId}/players`);
+    }
   };
 
+  const simulateRoundSubmissions = async () => {
+    if (!db) return;
+    try {
+      const activePlayers = Object.keys(playerData).filter(pid => playerData[pid].present);
+      const roundConfig = ROUNDS.find(r => r.id === gameInfo.currentRound);
+      if (!roundConfig) return;
 
+      const batch = writeBatch(db);
+      activePlayers.forEach((pid, i) => {
+          const key = `r${gameInfo.currentRound}_${pid}`;
+          const ref = doc(db, 'games', gameId, 'submissions', key);
+          
+          let mainOption: any;
+          const { mechanic, options } = roundConfig;
+          
+          if (mechanic === 'pick_problem') {
+            mainOption = options!.slice(0, 3).map(o => o.id);
+          } else if (mechanic === 'pick_combo') {
+            mainOption = options!.slice(0, 2).map(o => o.id);
+          } else if (mechanic === 'distribute_tokens') {
+            mainOption = { [options![0].id]: 10 };
+          } else {
+            mainOption = options?.[i % (options?.length || 1)]?.id;
+          }
 
-  const simulatePlayersPresence = () => {
-    const updated = { ...playerData };
-    STUDENTS.forEach(t => {
-      updated[t.id] = { present: true, score: 0, exp: 0, rank: 'Calouro da Calçada', ...updated[t.id] };
-    });
-    dataRef.update(`games/${gameId}/players`, updated);
+          batch.set(ref, {
+              roundId: gameInfo.currentRound,
+              playerId: pid,
+              zone: "Terreno do Projeto",
+              mainOption: mainOption,
+              justification: `Simulated justification for ${pid} in round ${gameInfo.currentRound}.`,
+              updatedAt: serverTimestamp()
+          });
+      });
+      await batch.commit();
+    } catch(e) {
+      handleFirestoreError(e, OperationType.WRITE, `games/${gameId}/submissions`);
+    }
   };
 
-  const simulateRoundSubmissions = () => {
-    const activePlayers = Object.keys(playerData).filter(pid => playerData[pid].present);
-    const roundConfig = ROUNDS.find(r => r.id === gameInfo.currentRound);
-    if (!roundConfig) return;
-
-    const newSubs = { ...submissions };
-    activePlayers.forEach((pid, i) => {
-        const key = `r${gameInfo.currentRound}_${pid}`;
-        newSubs[key] = {
-            zone: "Terreno do Projeto",
-            mainOption: roundConfig.options?.[i % (roundConfig.options?.length || 1)]?.id,
-            justification: "Test justification for " + pid
-        };
-    });
-    dataRef.update(`games/${gameId}/submissions`, newSubs);
-  };
-
-  const resetGame = () => {
-    dataRef.update(`games/${gameId}`, { state: 'lobby', currentRound: 0, conditionalId: '' });
-    dataRef.set(`games/${gameId}/submissions`, {});
-    dataRef.set(`games/${gameId}/evaluations`, {});
+  const resetGame = async () => {
+    if (!db) return;
+    try {
+      await updateDoc(doc(db, 'games', gameId), { 
+        state: 'lobby', 
+        currentRound: 0, 
+        conditionalId: '',
+        updatedAt: serverTimestamp()
+      });
+      
+      // Clear submissions and evaluations
+      const subs = await getDocs(collection(db, 'games', gameId, 'submissions'));
+      const evals = await getDocs(collection(db, 'games', gameId, 'evaluations'));
+      
+      const batch = writeBatch(db);
+      subs.forEach(d => batch.delete(d.ref));
+      evals.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    } catch(e) {
+      handleFirestoreError(e, OperationType.UPDATE, `games/${gameId}`);
+    }
   };
 
   return (

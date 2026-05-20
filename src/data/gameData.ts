@@ -178,3 +178,10 @@ export const RANKS = [
 export function getRank(exp: number) {
   return RANKS.find(r => exp <= r.max) || RANKS[RANKS.length - 1];
 }
+
+export const INTERACTION_TYPES = [
+  { id: 'good_urbanism', title: 'Urbanidade ✅', tooltip: 'Solução respeita escala humana e conforto.' },
+  { id: 'technical_flaw', title: 'Falha Técnica ❌', tooltip: 'Erro de conceito ou implementação.' },
+  { id: 'innovative', title: 'Inovador ✨', tooltip: 'Solução criativa para o território.' },
+  { id: 'discuss', title: 'Debate 💬', tooltip: 'Ponto polêmico para discussão em sala.' }
+];

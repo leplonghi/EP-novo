@@ -1,0 +1,75 @@
+{
+  "entities": {
+    "Game": {
+      "title": "Game",
+      "description": "Main game state and configuration",
+      "type": "object",
+      "properties": {
+        "state": { "type": "string", "enum": ["lobby", "round_active", "round_evaluating", "round_discussion", "end"] },
+        "currentRound": { "type": "integer" },
+        "conditionalId": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["state", "currentRound", "conditionalId"]
+    },
+    "Player": {
+      "title": "Player",
+      "description": "Student status and progress",
+      "type": "object",
+      "properties": {
+        "present": { "type": "boolean" },
+        "score": { "type": "integer" },
+        "exp": { "type": "integer" },
+        "rank": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["present", "score", "exp", "rank"]
+    },
+    "Submission": {
+      "title": "Submission",
+      "description": "Student answer for a specific round",
+      "type": "object",
+      "properties": {
+        "roundId": { "type": "integer" },
+        "playerId": { "type": "string" },
+        "data": { "type": "object" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["roundId", "playerId", "data"]
+    },
+    "Evaluation": {
+      "title": "Evaluation",
+      "description": "AI evaluation of a submission",
+      "type": "object",
+      "properties": {
+        "score": { "type": "integer" },
+        "strongPoint": { "type": "string" },
+        "weakPoint": { "type": "string" },
+        "recommendation": { "type": "string" },
+        "funComment": { "type": "string" },
+        "discussionPrompt": { "type": "string" },
+        "_loading": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["score"]
+    }
+  },
+  "firestore": {
+    "/games/{gameId}": {
+      "schema": "Game",
+      "description": "Root game document"
+    },
+    "/games/{gameId}/players/{playerId}": {
+      "schema": "Player",
+      "description": "Individual player records"
+    },
+    "/games/{gameId}/submissions/{submissionId}": {
+      "schema": "Submission",
+      "description": "Round submissions"
+    },
+    "/games/{gameId}/evaluations/{evaluationId}": {
+      "schema": "Evaluation",
+      "description": "Evaluation results"
+    }
+  }
+}
