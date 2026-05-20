@@ -170,6 +170,7 @@ export default function EquipeMobile() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-sky-50 to-white text-slate-800 font-sans relative overflow-hidden">
+
        {/* MOBILE HEADER */}
        <div className="p-4 flex justify-between items-center sticky top-0 z-50">
           <div className="flex items-center gap-3">
@@ -195,7 +196,30 @@ export default function EquipeMobile() {
 
        {showTutorial && <TutorialModal onClose={() => setShowTutorial(false)} />}
 
-       {roundConfig && (
+       {gameInfo.state === 'end' ? (
+        <div className="flex-1 p-5 flex flex-col items-center justify-center min-h-[60vh]">
+            <Trophy className="w-24 h-24 text-amber-400 mb-6" />
+            <h2 className="text-3xl font-black text-slate-900 mb-2">Fim de Jogo!</h2>
+            <p className="text-slate-600 text-center mb-8">Sua pontuação final foi: <span className="font-bold text-sky-600">{data?.score || 0}</span></p>
+            <div className="w-full bg-white/50 rounded-xl p-4 border border-sky-100">
+                <h4 className="font-bold text-slate-700 mb-4 text-center text-sm uppercase tracking-widest">Ranking Final</h4>
+                <div className="space-y-2">
+                    {Object.keys(playerData)
+                        .sort((a, b) => (playerData[b].score || 0) - (playerData[a].score || 0))
+                        .slice(0, 5)
+                        .map((pid, idx) => (
+                            <div key={pid} className="flex justify-between items-center bg-white p-2 rounded-lg text-sm">
+                                <span className="font-bold text-slate-700">{idx+1}º {STUDENTS.find(s=>s.id === pid)?.name}</span>
+                                <span className="font-mono font-bold text-sky-600">{playerData[pid].score} pts</span>
+                            </div>
+                    ))}
+                </div>
+            </div>
+            <button onClick={() => navigate('/')} className="mt-8 px-6 py-3 bg-sky-500 text-white rounded-xl font-bold flex items-center gap-2">
+                <ArrowLeft className="w-4 h-4" /> Voltar ao Início
+            </button>
+        </div>
+       ) : roundConfig && (
            <div className="flex-1 p-5 pb-24 relative z-10 overflow-auto">
                
                {/* Progress bar */}
